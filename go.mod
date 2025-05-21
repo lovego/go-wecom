@@ -1,4 +1,4 @@
-module github.com/wenerme/go-wecom
+module github.com/lovego/go-wecom
 
 go 1.19
 

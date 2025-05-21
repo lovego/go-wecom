@@ -4,9 +4,9 @@ import (
 	"crypto/aes"
 	"testing"
 
+	"github.com/lovego/go-wecom/wecom"
+	"github.com/lovego/go-wecom/wwcrypt"
 	"github.com/stretchr/testify/assert"
-	"github.com/wenerme/go-wecom/wecom"
-	"github.com/wenerme/go-wecom/wwcrypt"
 )
 
 func TestAES(t *testing.T) {

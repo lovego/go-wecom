@@ -11,20 +11,17 @@ import (
 	"strings"
 	"time"
 
-	dotenv "github.com/joho/godotenv"
-
-	"gorm.io/gorm/clause"
-
 	_ "github.com/glebarez/go-sqlite"
 	gsqlite "github.com/glebarez/go-sqlite"
-	"github.com/wenerme/go-wecom/WeWorkFinanceSDK/models"
-	"gorm.io/gorm"
-
 	"github.com/glebarez/sqlite"
+	dotenv "github.com/joho/godotenv"
+	"github.com/lovego/go-wecom/WeWorkFinanceSDK"
+	"github.com/lovego/go-wecom/WeWorkFinanceSDK/models"
 	"github.com/oklog/ulid/v2"
 	"github.com/sirupsen/logrus"
-	"github.com/wenerme/go-wecom/WeWorkFinanceSDK"
 	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var defaultEntropySource = ulid.Monotonic(rand.Reader, 0)

@@ -4,9 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wenerme/go-wecom/commons/gorms"
-
-	"github.com/wenerme/go-wecom/WeWorkFinanceSDK"
+	"github.com/lovego/go-wecom/WeWorkFinanceSDK"
+	"github.com/lovego/go-wecom/commons/gorms"
 	"gorm.io/datatypes"
 )
 

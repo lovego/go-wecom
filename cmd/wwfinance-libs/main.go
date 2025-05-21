@@ -5,7 +5,7 @@ import (
 	"os"
 
 	dotenv "github.com/joho/godotenv"
-	"github.com/wenerme/go-wecom/WeWorkFinanceSDK/libs"
+	"github.com/lovego/go-wecom/WeWorkFinanceSDK/libs"
 )
 
 func main() {

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/lovego/go-wecom/wecom"
 	"github.com/wenerme/go-req"
-	"github.com/wenerme/go-wecom/wecom"
 )
 
 func ExampleNewClient() {

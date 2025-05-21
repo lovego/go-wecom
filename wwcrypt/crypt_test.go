@@ -11,9 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lovego/go-wecom/wecom"
 	"github.com/mitchellh/mapstructure"
-	"github.com/wenerme/go-wecom/wecom"
-
 	"github.com/sbzhu/weworkapi_golang/wxbizmsgcrypt"
 	"github.com/stretchr/testify/assert"
 )
