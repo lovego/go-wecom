@@ -69,7 +69,7 @@ func requestMiddleware(r *req.Request) (err error) {
 	if !o.WithoutAccessToken {
 		key, val, err := o.GetToken(client, r)
 		if err == nil {
-			if _, found := v[key]; !found {
+			if value := v.Get(key); value == "" && val != "" {
 				v.Set(key, val)
 			}
 		}
