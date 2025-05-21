@@ -1,65 +1,68 @@
 //go:build linux && cgo
+// +build linux,cgo
 
 package WeWorkFinanceSDK
 
-// #cgo LDFLAGS: -L${SRCDIR}/libs -lWeWorkFinanceSdk_C -lm
-// #cgo CFLAGS: -I${SRCDIR}/libs
+// #cgo LDFLAGS: -L${SRCDIR}/lib -lWeWorkFinanceSdk_C
+// #cgo CFLAGS: -I ./lib/
 // #include <stdlib.h>
 // #include "WeWorkFinanceSdk_C.h"
 import "C"
-
 import (
-	"bytes"
-	"crypto/rsa"
 	"encoding/json"
-	"fmt"
-	"io"
 	"unsafe"
-
-	"github.com/pkg/errors"
 )
 
-type client struct {
-	ptr     *C.WeWorkFinanceSdk_t
-	corpID  string
-	options ClientOptions
+type SdkClient struct {
+	ptr        *C.WeWorkFinanceSdk_t
+	privateKey string
 }
 
-func NewClient(corpID string, corpSecret string) (Client, error) {
+// NewClient 初始化函数
+// Return值=0表示该API调用成功
+//
+// @param [in]  sdk			NewSdk返回的sdk指针
+// @param [in]  corpId       调用企业的企业id，例如：wwd08c8exxxx5ab44d，可以在企业微信管理端--我的企业--企业信息查看
+// @param [in]  secret		 聊天内容存档的Secret，可以在企业微信管理端--管理工具--聊天内容存档查看
+// @param [in]  privateKey    消息加密私钥，可以在企业微信管理端--管理工具--消息加密公钥查看对用公钥，私钥一般由自己保存
+//
+// @return 返回是否初始化成功
+//      0   - 成功
+//  	!=0 - 失败
+//
+func NewClient(corpId string, corpSecret string, rsaPrivateKey string) (Client, error) {
 	ptr := C.NewSdk()
-	corpIDC := C.CString(corpID)
+	corpIdC := C.CString(corpId)
 	corpSecretC := C.CString(corpSecret)
 	defer func() {
-		C.free(unsafe.Pointer(corpIDC))
+		C.free(unsafe.Pointer(corpIdC))
 		C.free(unsafe.Pointer(corpSecretC))
 	}()
-	retC := C.Init(ptr, corpIDC, corpSecretC)
+	retC := C.Init(ptr, corpIdC, corpSecretC)
 	ret := int(retC)
 	if ret != 0 {
-		return nil, ErrorOfCode(ret, "Init")
+		return nil, NewSDKErr(ret)
 	}
-	return &client{
-		ptr:    ptr,
-		corpID: corpID,
+	return &SdkClient{
+		ptr:        ptr,
+		privateKey: rsaPrivateKey,
 	}, nil
 }
 
-func (c *client) GetChatData(o GetChatDataOptions) ([]*ChatData, error) {
-	if o.Proxy == "" {
-		o.Proxy = c.options.Proxy
-	}
-	if o.ProxyCredential == "" {
-		o.ProxyCredential = c.options.ProxyCredential
-	}
-	if o.Timeout == 0 {
-		o.Timeout = c.options.Timeout
-	}
-	if o.Unmarshal == nil {
-		o.Unmarshal = Unmarshal
-	}
-
-	proxyC := C.CString(o.Proxy)
-	passwdC := C.CString(o.ProxyCredential)
+// GetChatData 拉取聊天记录
+//
+// @param [in]  seq             从指定的seq开始拉取消息，注意的是返回的消息从seq+1开始返回，seq为之前接口返回的最大seq值。首次使用请使用seq:0
+// @param [in]  limit           一次拉取的消息条数，最大值1000条，超过1000条会返回错误
+// @param [in]  proxy           使用代理的请求，需要传入代理的链接。如：socks5://10.0.0.1:8081 或者 http://10.0.0.1:8081
+// @param [in]  passwd          代理账号密码，需要传入代理的账号密码。如 user_name:passwd_123
+// @param [in]  timeout         超时时间，单位秒
+//
+// @return chatData       返回本次拉取消息的数据，slice结构体.内容包括errcode/errmsg，以及每条消息内容。示例如下：
+// {"errcode":0,"errmsg":"ok","chatdata":[{"seq":196,"msgid":"CAQQ2fbb4QUY0On2rYSAgAMgip/yzgs=","publickey_ver":3,"encrypt_random_key":"ftJ+uz3n/z1DsxlkwxNgE+mL38H42/KCvN8T60gbbtPD+Rta1hKTuQPzUzO6Hzne97MgKs7FfdDxDck/v8cDT6gUVjA2tZ/M7euSD0L66opJ/IUeBtpAtvgVSD5qhlaQjvfKJc/zPMGNK2xCLFYqwmQBZXbNT7uA69Fflm512nZKW/piK2RKdYJhRyvQnA1ISxK097sp9WlEgDg250fM5tgwMjujdzr7ehK6gtVBUFldNSJS7ndtIf6aSBfaLktZgwHZ57ONewWq8GJe7WwQf1hwcDbCh7YMG8nsweEwhDfUz+u8rz9an+0lgrYMZFRHnmzjgmLwrR7B/32Qxqd79A==","encrypt_chat_msg":"898WSfGMnIeytTsea7Rc0WsOocs0bIAerF6de0v2cFwqo9uOxrW9wYe5rCjCHHH5bDrNvLxBE/xOoFfcwOTYX0HQxTJaH0ES9OHDZ61p8gcbfGdJKnq2UU4tAEgGb8H+Q9n8syRXIjaI3KuVCqGIi4QGHFmxWenPFfjF/vRuPd0EpzUNwmqfUxLBWLpGhv+dLnqiEOBW41Zdc0OO0St6E+JeIeHlRZAR+E13Isv9eS09xNbF0qQXWIyNUi+ucLr5VuZnPGXBrSfvwX8f0QebTwpy1tT2zvQiMM2MBugKH6NuMzzuvEsXeD+6+3VRqL"}]}
+//
+func (s *SdkClient) GetChatData(seq uint64, limit uint64, proxy string, passwd string, timeout int) ([]ChatData, error) {
+	proxyC := C.CString(proxy)
+	passwdC := C.CString(passwd)
 	chatSlice := C.NewSlice()
 	defer func() {
 		C.free(unsafe.Pointer(proxyC))
@@ -67,266 +70,43 @@ func (c *client) GetChatData(o GetChatDataOptions) ([]*ChatData, error) {
 		C.FreeSlice(chatSlice)
 	}()
 
-	if c.ptr == nil {
-		return nil, ErrorOfCode(10002, "Client is closed")
+	if s.ptr == nil {
+		return nil, NewSDKErr(10002)
 	}
 
-	retC := C.GetChatData(c.ptr, C.ulonglong(o.Sequence), C.uint(o.Limit), proxyC, passwdC, C.int(o.Timeout), chatSlice)
+	retC := C.GetChatData(s.ptr, C.ulonglong(seq), C.uint(limit), proxyC, passwdC, C.int(timeout), chatSlice)
 	ret := int(retC)
 	if ret != 0 {
-		return nil, ErrorOfCode(ret, "GetChatData")
+		return nil, NewSDKErr(ret)
 	}
-	buf := getContentFromSlice(chatSlice)
+	buf := s.GetContentFromSlice(chatSlice)
+
 	var data ChatRawData
 	err := json.Unmarshal(buf, &data)
 	if err != nil {
 		return nil, err
 	}
-	if data.Code != 0 {
+	if data.ErrCode != 0 {
 		return nil, data.Error
 	}
-
-	if !o.SkipDecrypt {
-		for _, v := range data.ChatDataList {
-			key := c.options.PrivateKey
-			if c.options.PrivateKeyFn != nil {
-				key, err = c.options.PrivateKeyFn(v.PublicKeyVersion)
-				if err != nil {
-					return nil, err
-				}
-			}
-			if key == nil {
-				return nil, ErrorOfCode(10003, "PrivateKey not found")
-			}
-			var dec []byte
-			dec, err = DecryptData(key, v.EncryptRandomKey, v.EncryptChatMessage)
-			if err != nil {
-				return nil, errors.Wrapf(err, "DecryptData failed, seq: %d", v.Sequence)
-			}
-			v.Message, err = o.Unmarshal(dec)
-			v.Message.SetSequence(v.Sequence)
-			v.Message.SetCorpID(c.corpID)
-		}
-	}
-
 	return data.ChatDataList, nil
 }
 
-func (c *client) ReadMediaData(o GetMediaDataOptions) (b []byte, err error) {
-	buf := bytes.Buffer{}
-	if o.Proxy == "" {
-		o.Proxy = c.options.Proxy
+// DecryptData
+/**
+* @brief 解析密文.企业微信自有解密内容
+* @param [in]  encryptRandomKey, getchatdata返回的encrypt_random_key,使用企业自持对应版本秘钥RSA解密后的内容
+* @param [in]  encryptMsg, getchatdata返回的encrypt_chat_msg
+* @param [out] msg, 解密的消息明文
+* @return 返回是否调用成功
+*      0   - 成功
+*      !=0 - 失败
+ */
+func (s *SdkClient) DecryptData(encryptRandomKey string, encryptMsg string, specificPrivateKey string) (msg ChatMessage, err error) {
+	if specificPrivateKey == "" {
+		specificPrivateKey = s.privateKey
 	}
-	if o.ProxyCredential == "" {
-		o.ProxyCredential = c.options.ProxyCredential
-	}
-	if o.Timeout == 0 {
-		o.Timeout = c.options.Timeout
-	}
-	if c.ptr == nil {
-		return nil, errors.New("client closed")
-	}
-
-	var indexBufC *C.char
-	sdkFileIDC := C.CString(o.FileID)
-	proxyC := C.CString(o.Proxy)
-	passwdC := C.CString(o.ProxyCredential)
-	mediaDataC := C.NewMediaData()
-	defer func() {
-		// C.free(unsafe.Pointer(indexBufC))
-		C.free(unsafe.Pointer(sdkFileIDC))
-		C.free(unsafe.Pointer(proxyC))
-		C.free(unsafe.Pointer(passwdC))
-		C.FreeMediaData(mediaDataC)
-	}()
-
-	for {
-
-		retC := C.GetMediaData(c.ptr, indexBufC, sdkFileIDC, proxyC, passwdC, C.int(o.Timeout), mediaDataC)
-		indexBufC = C.GetOutIndexBuf(mediaDataC)
-		ret := int(retC)
-		if ret != 0 {
-			return nil, ErrorOfCode(ret, fmt.Sprintf("GetMediaData fileId=%s", o.FileID))
-		}
-		// 单次最大 512K
-		_, _ = buf.Write(C.GoBytes(unsafe.Pointer(C.GetData(mediaDataC)), C.int(C.GetDataLen(mediaDataC))))
-		if int(C.IsMediaDataFinish(mediaDataC)) == 1 {
-			break
-		}
-	}
-	return buf.Bytes(), err
-}
-
-func (c *client) CopyMediaData(o GetMediaDataOptions, w io.Writer) (sum int, err error) {
-	o.Index = ""
-	var data *MediaData
-	var n int
-	for {
-		data, err = c.GetMediaData(o)
-		if err != nil {
-			return
-		}
-		n, err = w.Write(data.Data)
-		sum += n
-		if data.Finished {
-			return
-		}
-		o.Index = data.OutIndexBuf
-	}
-}
-
-func (c *client) GetMediaData(o GetMediaDataOptions) (*MediaData, error) {
-	if o.Proxy == "" {
-		o.Proxy = c.options.Proxy
-	}
-	if o.ProxyCredential == "" {
-		o.ProxyCredential = c.options.ProxyCredential
-	}
-	if o.Timeout == 0 {
-		o.Timeout = c.options.Timeout
-	}
-	indexBufC := C.CString(o.Index)
-	sdkFileIDC := C.CString(o.FileID)
-	proxyC := C.CString(o.Proxy)
-	passwdC := C.CString(o.ProxyCredential)
-	mediaDataC := C.NewMediaData()
-	defer func() {
-		C.free(unsafe.Pointer(indexBufC))
-		C.free(unsafe.Pointer(sdkFileIDC))
-		C.free(unsafe.Pointer(proxyC))
-		C.free(unsafe.Pointer(passwdC))
-		C.FreeMediaData(mediaDataC)
-	}()
-
-	if c.ptr == nil {
-		return nil, errors.New("client closed")
-	}
-
-	retC := C.GetMediaData(c.ptr, indexBufC, sdkFileIDC, proxyC, passwdC, C.int(o.Timeout), mediaDataC)
-	ret := int(retC)
-	if ret != 0 {
-		return nil, ErrorOfCode(ret, "GetMediaData")
-	}
-	return &MediaData{
-		OutIndexBuf: C.GoString(C.GetOutIndexBuf(mediaDataC)),
-		Data:        C.GoBytes(unsafe.Pointer(C.GetData(mediaDataC)), C.int(C.GetDataLen(mediaDataC))),
-		Finished:    int(C.IsMediaDataFinish(mediaDataC)) == 1,
-	}, nil
-}
-
-// func (c *client) SaveMedia(o SaveMediaOptions) error {
-//	if o.TempDir == "" {
-//		o.TempDir = c.options.TempDir
-//	}
-//	if o.TempDir == "" {
-//		o.TempDir = os.TempDir()
-//	}
-//	var name string
-//	media := o.Media
-//	if media.MD5Sum != "" {
-//		name = media.MD5Sum + "." + media.Ext
-//	}
-//	if name != "" {
-//		if stat, _ := os.Stat(path.Join(o.Dir, name)); stat != nil && !o.Force {
-//			if !o.KeepData && o.Writer == nil && o.Media.MD5Sum != "" {
-//				return nil
-//			}
-//
-//			file, err := os.ReadFile(stat.Name())
-//			if err != nil {
-//				return err
-//			}
-//			if o.KeepData {
-//
-//			}
-//			return nil
-//		}
-//	}
-//
-//	temp, err := os.CreateTemp(o.TempDir, "weworkmedia")
-//	if err != nil {
-//		return err
-//	}
-//	skipClose := false
-//	skipDelete := false
-//	defer func() {
-//		if !skipClose {
-//			_ = temp.Close()
-//		}
-//		if !skipDelete {
-//			//_ = os.Remove(temp.Name())
-//		}
-//	}()
-//
-//	hash := md5.New()
-//	counter := &counterWriter{}
-//
-//	var writers = []io.Writer{hash, counter}
-//	if o.Writer != nil {
-//		writers = append(writers, o.Writer)
-//	}
-//	var buf *bytes.Buffer
-//	if o.KeepData {
-//		buf = new(bytes.Buffer)
-//		writers = append(writers, buf)
-//	}
-//
-//	w := io.MultiWriter(writers...)
-//	_, err = c.CopyMediaData(GetMediaDataOptions{
-//		FileID: media.ID,
-//	}, w)
-//	if err != nil {
-//		return err
-//	}
-//
-//	skipClose = true
-//	_ = temp.Close()
-//
-//	md5sum := hex.EncodeToString(hash.Sum(nil))
-//	if media.MD5Sum != "" {
-//		if media.MD5Sum != md5sum && o.CheckSum {
-//			println("temp", temp.Name())
-//			return fmt.Errorf("media md5sum not match: %s != %s #%v <-> #%v id=%s", media.MD5Sum, md5sum, media.Size, counter.Count, media.ID)
-//		}
-//	} else {
-//		media.MD5Sum = md5sum
-//	}
-//
-//	if media.Size != 0 {
-//		if media.Size != counter.Count {
-//			return fmt.Errorf("media size not match: %d != %d id=%s", media.Size, counter.Count, media.ID)
-//		}
-//	}
-//	if media.Ext == "" {
-//		media.Ext = "data"
-//	}
-//
-//	media.FileMD5Sum = md5sum
-//	name = md5sum + "." + media.Ext
-//	if buf != nil {
-//		media.Data = buf.Bytes()
-//	}
-//	//
-//	err = os.Rename(temp.Name(), path.Join(o.Dir, name))
-//	skipDelete = err == nil
-//
-//	return err
-// }
-
-func (c *client) Close() {
-	if c.ptr == nil {
-		return
-	}
-	C.DestroySdk(c.ptr)
-	c.ptr = nil
-}
-
-func getContentFromSlice(slice *C.struct_Slice_t) []byte {
-	return C.GoBytes(unsafe.Pointer(C.GetContentFromSlice(slice)), C.GetSliceLen(slice))
-}
-
-func DecryptData(privateKey *rsa.PrivateKey, encryptRandomKey string, encryptMsg string) (msg []byte, err error) {
-	encryptKey, err := RSADecryptBase64(privateKey, encryptRandomKey)
+	encryptKey, err := RSADecryptBase64(specificPrivateKey, encryptRandomKey)
 	if err != nil {
 		return msg, err
 	}
@@ -342,9 +122,9 @@ func DecryptData(privateKey *rsa.PrivateKey, encryptRandomKey string, encryptMsg
 	retC := C.DecryptData(encryptKeyC, encryptMsgC, msgSlice)
 	ret := int(retC)
 	if ret != 0 {
-		return msg, ErrorOfCode(ret, "DecryptData")
+		return msg, NewSDKErr(ret)
 	}
-	buf := getContentFromSlice(msgSlice)
+	buf := s.GetContentFromSlice(msgSlice)
 
 	// handle illegal escape character in text
 	for i := 0; i < len(buf); {
@@ -355,15 +135,78 @@ func DecryptData(privateKey *rsa.PrivateKey, encryptRandomKey string, encryptMsg
 		i++
 	}
 
-	return buf, err
+	var baseMessage BaseMessage
+	err = json.Unmarshal(buf, &baseMessage)
+	if err != nil {
+		return msg, err
+	}
+
+	msg.Id = baseMessage.MsgID
+	msg.From = baseMessage.From
+	msg.ToList = baseMessage.ToList
+	msg.Action = baseMessage.Action
+	msg.Type = baseMessage.MsgType
+	msg.originData = buf
+	return msg, err
 }
 
-// type counterWriter struct {
-// 	Count int
-// }
-//
-// func (c *counterWriter) Write(p []byte) (n int, err error) {
-// 	n = len(p)
-// 	c.Count += n
-// 	return n, nil
-// }
+// GetMediaData
+/**
+ * 拉取媒体消息函数
+ * Return值=0表示该API调用成功
+ *
+ *
+ * @param [in]  sdk				NewSdk返回的sdk指针
+ * @param [in]  sdkFileId		从GetChatData返回的聊天消息中，媒体消息包括的sdkfileid
+ * @param [in]  proxy			使用代理的请求，需要传入代理的链接。如：socks5://10.0.0.1:8081 或者 http://10.0.0.1:8081
+ * @param [in]  passwd			代理账号密码，需要传入代理的账号密码。如 user_name:passwd_123
+ * @param [in]  indexbuf		媒体消息分片拉取，需要填入每次拉取的索引信息。首次不需要填写，默认拉取512k，后续每次调用只需要将上次调用返回的outindexbuf填入即可。
+ * @param [in]  timeout			超时时间，单位秒
+ * @param [out] media_data		返回本次拉取的媒体数据.MediaData结构体.内容包括data(数据内容)/outindexbuf(下次索引)/is_finish(拉取完成标记)
+
+ *
+ * @return 返回是否调用成功
+ *      0   - 成功
+ *      !=0 - 失败
+ */
+func (s *SdkClient) GetMediaData(indexBuf string, sdkFileId string, proxy string, passwd string, timeout int) (*MediaData, error) {
+	indexBufC := C.CString(indexBuf)
+	sdkFileIdC := C.CString(sdkFileId)
+	proxyC := C.CString(proxy)
+	passwdC := C.CString(passwd)
+	mediaDataC := C.NewMediaData()
+	defer func() {
+		C.free(unsafe.Pointer(indexBufC))
+		C.free(unsafe.Pointer(sdkFileIdC))
+		C.free(unsafe.Pointer(proxyC))
+		C.free(unsafe.Pointer(passwdC))
+		C.FreeMediaData(mediaDataC)
+	}()
+
+	if s.ptr == nil {
+		return nil, NewSDKErr(10002)
+	}
+
+	retC := C.GetMediaData(s.ptr, indexBufC, sdkFileIdC, proxyC, passwdC, C.int(timeout), mediaDataC)
+	ret := int(retC)
+	if ret != 0 {
+		return nil, NewSDKErr(ret)
+	}
+	return &MediaData{
+		OutIndexBuf: C.GoString(C.GetOutIndexBuf(mediaDataC)),
+		Data:        C.GoBytes(unsafe.Pointer(C.GetData(mediaDataC)), C.int(C.GetDataLen(mediaDataC))),
+		IsFinish:    int(C.IsMediaDataFinish(mediaDataC)) == 1,
+	}, nil
+}
+
+func (s *SdkClient) Free() {
+	if s.ptr == nil {
+		return
+	}
+	C.DestroySdk(s.ptr)
+	s.ptr = nil
+}
+
+func (s *SdkClient) GetContentFromSlice(slice *C.struct_Slice_t) []byte {
+	return C.GoBytes(unsafe.Pointer(C.GetContentFromSlice(slice)), C.int(C.GetSliceLen(slice)))
+}

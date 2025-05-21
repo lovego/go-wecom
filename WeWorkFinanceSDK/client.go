@@ -1,212 +1,49 @@
 package WeWorkFinanceSDK
 
-import "C"
-import (
-	"crypto/rsa"
-	"fmt"
-	"io"
-	"os"
-	"strconv"
-	"sync"
-)
-
-type GetChatDataOptions struct {
-	Sequence        uint64
-	Limit           int64
-	Proxy           string
-	ProxyCredential string
-	Timeout         int
-	SkipDecrypt     bool
-	Unmarshal       func(data []byte) (Message, error)
-}
-type GetMediaDataOptions struct {
-	Index           string
-	FileID          string
-	Proxy           string
-	ProxyCredential string
-	Timeout         int
-}
-type ClientOptions struct {
-	Proxy           string
-	TempDir         string
-	ProxyCredential string
-	Timeout         int
-	PrivateKey      *rsa.PrivateKey
-	PrivateKeyFn    func(ver int) (*rsa.PrivateKey, error)
-}
-type ClientOptionBuilder struct {
-	Options ClientOptions
-	Errors  []error
-	Client  *client
-}
-
-func (b *ClientOptionBuilder) PrivateKeys(m map[int]string) *ClientOptionBuilder {
-	b.PrivateKeyFn(func(ver int) (string, error) {
-		return m[ver], nil
-	})
-	return b
-}
-
-func (b *ClientOptionBuilder) PrivateKeyFn(fn func(ver int) (string, error)) *ClientOptionBuilder {
-	keys := sync.Map{}
-	b.Options.PrivateKeyFn = func(ver int) (key *rsa.PrivateKey, err error) {
-		val, _ := keys.Load(ver)
-		if key, _ = val.(*rsa.PrivateKey); key != nil {
-			return
-		}
-		s, err := fn(ver)
-		if err != nil || s == "" {
-			return nil, err
-		}
-		key, err = ParsePrivateKey(s)
-		if err == nil {
-			keys.Store(ver, key)
-		}
-		return
-	}
-	return b
-}
-
-func (b *ClientOptionBuilder) Proxy(value string) *ClientOptionBuilder {
-	b.Options.Proxy = value
-	return b
-}
-
-func (b *ClientOptionBuilder) ProxyCredential(value string) *ClientOptionBuilder {
-	b.Options.ProxyCredential = value
-	return b
-}
-
-func (b *ClientOptionBuilder) ParseEnv() *ClientOptionBuilder {
-	if b.Options.PrivateKey == nil {
-		pkFile := os.Getenv("WWF_PRIVATE_KEY_FILE")
-		pk := os.Getenv("WWF_PRIVATE_KEY")
-
-		if pkFile != "" && pk == "" {
-			file, err := os.ReadFile(pkFile)
-			if err != nil {
-				b.Errors = append(b.Errors, err)
-				return b
-			}
-			pk = string(file)
-		}
-		if pk != "" {
-			b.PrivateKey(pk)
-		}
-	}
-	if b.Options.Proxy == "" {
-		b.Proxy(os.Getenv("WWF_PROXY"))
-	}
-	if b.Options.ProxyCredential == "" {
-		b.ProxyCredential(os.Getenv("WWF_PROXY_CREDENTIAL"))
-	}
-	if b.Options.Timeout == 0 {
-		b.Options.Timeout, _ = strconv.Atoi(os.Getenv("WWF_TIMEOUT"))
-	}
-	return b
-}
-
-func (b *ClientOptionBuilder) PrivateKey(v string) *ClientOptionBuilder {
-	key, err := ParsePrivateKey(v)
-	if err != nil {
-		b.Errors = append(b.Errors, err)
-	} else {
-		b.Options.PrivateKey = key
-	}
-	return b
-}
-
-func (b *ClientOptionBuilder) Apply() (Client, error) {
-	options, err := b.Build()
-	if err != nil {
-		return nil, err
-	}
-	b.Client.options = options
-	return b.Client, nil
-}
-
-func (b *ClientOptionBuilder) MustApply() Client {
-	client, err := b.Apply()
-	if err != nil {
-		panic(err)
-	}
-	return client
-}
-
-func (b *ClientOptionBuilder) MustBuild() ClientOptions {
-	options, err := b.Build()
-	if err != nil {
-		panic(err)
-	}
-	return options
-}
-
-func (b *ClientOptionBuilder) Build() (ClientOptions, error) {
-	if len(b.Errors) > 0 {
-		return ClientOptions{}, b.Errors[0]
-	}
-	o := b.Options
-	if o.PrivateKey == nil && o.PrivateKeyFn == nil {
-		b.Errors = append(b.Errors, ErrorOfCode(10000, "no private key"))
-	}
-	return o, nil
-}
-
-func NewClientFromEnv() (Client, error) {
-	corpID, _ := os.LookupEnv("WWF_CORP_ID")
-	corpSecret, _ := os.LookupEnv("WWF_CORP_SECRET")
-	corpSecretFile, _ := os.LookupEnv("WWF_CORP_SECRET_FILE")
-	if corpSecretFile != "" && corpSecret == "" {
-		file, err := os.ReadFile(corpSecretFile)
-		if err != nil {
-			panic(err)
-		}
-		corpSecret = string(file)
-	}
-	if corpID == "" {
-		return nil, fmt.Errorf("corpId is required")
-	}
-	if corpSecret == "" {
-		return nil, fmt.Errorf("corpSecret is required")
-	}
-	cli, err := NewClient(corpID, corpSecret)
-	if err == nil {
-		cli, err = cli.Options().ParseEnv().Apply()
-	}
-	return cli, err
-}
-
-func (c *client) Options() *ClientOptionBuilder {
-	return &ClientOptionBuilder{Options: c.options, Client: c}
-}
-
-type SaveMediaOptions struct {
-	Media   *Media
-	TempDir string
-	Dir     string // save to dir
-	// Name    string // save as name
-	// Path    string // save as final path
-	// Meta    string
-
-	Writer   io.Writer
-	KeepData bool
-	Force    bool
-	CheckSum bool
-}
-
-func (c *client) GetCorpID() string {
-	return c.corpID
-}
-
 type Client interface {
-	GetCorpID() string
-	Options() *ClientOptionBuilder
-	CopyMediaData(o GetMediaDataOptions, w io.Writer) (sum int, err error)
-	ReadMediaData(o GetMediaDataOptions) (data []byte, err error)
-	GetMediaData(o GetMediaDataOptions) (*MediaData, error)
+	// GetChatData 拉取聊天记录
+	//
+	// @param [in]  seq             从指定的seq开始拉取消息，注意的是返回的消息从seq+1开始返回，seq为之前接口返回的最大seq值。首次使用请使用seq:0
+	// @param [in]  limit           一次拉取的消息条数，最大值1000条，超过1000条会返回错误
+	// @param [in]  proxy           使用代理的请求，需要传入代理的链接。如：socks5://10.0.0.1:8081 或者 http://10.0.0.1:8081
+	// @param [in]  passwd          代理账号密码，需要传入代理的账号密码。如 user_name:passwd_123
+	// @param [in]  timeout         超时时间，单位秒
+	//
+	// @return chatDatas       返回本次拉取消息的数据，slice结构体.内容包括errcode/errmsg，以及每条消息内容。示例如下：
+	// {"errcode":0,"errmsg":"ok","chatdata":[{"seq":196,"msgid":"CAQQ2fbb4QUY0On2rYSAgAMgip/yzgs=","publickey_ver":3,"encrypt_random_key":"ftJ+uz3n/z1DsxlkwxNgE+mL38H42/KCvN8T60gbbtPD+Rta1hKTuQPzUzO6Hzne97MgKs7FfdDxDck/v8cDT6gUVjA2tZ/M7euSD0L66opJ/IUeBtpAtvgVSD5qhlaQjvfKJc/zPMGNK2xCLFYqwmQBZXbNT7uA69Fflm512nZKW/piK2RKdYJhRyvQnA1ISxK097sp9WlEgDg250fM5tgwMjujdzr7ehK6gtVBUFldNSJS7ndtIf6aSBfaLktZgwHZ57ONewWq8GJe7WwQf1hwcDbCh7YMG8nsweEwhDfUz+u8rz9an+0lgrYMZFRHnmzjgmLwrR7B/32Qxqd79A==","encrypt_chat_msg":"898WSfGMnIeytTsea7Rc0WsOocs0bIAerF6de0v2cFwqo9uOxrW9wYe5rCjCHHH5bDrNvLxBE/xOoFfcwOTYX0HQxTJaH0ES9OHDZ61p8gcbfGdJKnq2UU4tAEgGb8H+Q9n8syRXIjaI3KuVCqGIi4QGHFmxWenPFfjF/vRuPd0EpzUNwmqfUxLBWLpGhv+dLnqiEOBW41Zdc0OO0St6E+JeIeHlRZAR+E13Isv9eS09xNbF0qQXWIyNUi+ucLr5VuZnPGXBrSfvwX8f0QebTwpy1tT2zvQiMM2MBugKH6NuMzzuvEsXeD+6+3VRqL"}]}
+	//
+	GetChatData(seq uint64, limit uint64, proxy string, passwd string, timeout int) ([]ChatData, error)
 
-	// SaveMedia(o SaveMediaOptions) error
+	// DecryptData 解析密文.企业微信自有解密内容
+	//
+	// @param [in]  encrypt_key, getchatdata返回的encrypt_random_key,使用企业自持对应版本秘钥RSA解密后的内容
+	// @param [in]  encrypt_msg, getchatdata返回的encrypt_chat_msg
+	// @param [out] msg, 解密的消息明文
+	//
+	// @return 返回是否调用成功
+	//      0   - 成功
+	//  	!=0 - 失败
+	//
+	DecryptData(encryptRandomKey string, encryptMsg string,specificPrivateKey string) (msg ChatMessage, err error)
 
-	GetChatData(o GetChatDataOptions) ([]*ChatData, error)
-	Close()
+	// GetMediaData 拉取媒体消息函数
+	//
+	// Return值=0表示该API调用成功
+	// @param [in]  sdk				NewSdk返回的sdk指针
+	// @param [in]  sdkFileid		从GetChatData返回的聊天消息中，媒体消息包括的sdkfileid
+	// @param [in]  proxy			使用代理的请求，需要传入代理的链接。如：socks5://10.0.0.1:8081 或者 http://10.0.0.1:8081
+	// @param [in]  passwd			代理账号密码，需要传入代理的账号密码。如 user_name:passwd_123
+	// @param [in]  indexbuf		媒体消息分片拉取，需要填入每次拉取的索引信息。首次不需要填写，默认拉取512k，后续每次调用只需要将上次调用返回的outindexbuf填入即可。
+	// @param [in]  timeout			超时时间，单位秒
+	// @param [out] media_data		返回本次拉取的媒体数据.MediaData结构体.内容包括data(数据内容)/outindexbuf(下次索引)/is_finish(拉取完成标记)
+	//
+	// @return 返回是否调用成功
+	//      0   - 成功
+	//  	!=0 - 失败
+	//
+	GetMediaData(indexBuf string, sdkFileId string, proxy string, passwd string, timeout int) (*MediaData, error)
+
+	// Free 释放 Client
+	// 释放 C 指针,避免内存泄漏
+	Free()
 }

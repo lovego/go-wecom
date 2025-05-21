@@ -4,57 +4,71 @@ import (
 	"fmt"
 )
 
+//返回码	错误说明
+//10000	参数错误，请求参数错误
+//10001	网络错误，网络请求错误
+//10002	数据解析失败
+//10003	系统失败
+//10004	密钥错误导致加密失败
+//10005	fileid错误
+//10006	解密失败
+//10007 找不到消息加密版本的私钥，需要重新传入私钥对
+//10008 解析encrypt_key出错
+//10009 ip非法
+//10010 数据过期
+//10011	证书错误
+const (
+	SDKErrMsg               = "sdk failed"
+	SDKParamsErrMsg         = "参数错误，请求参数错误"
+	SDKNetworkErrMsg        = "网络错误，网络请求错误"
+	SDKParseErrMsg          = "数据解析失败"
+	SDKSystemErrMsg         = "系统失败"
+	SDKSecretErrMsg         = "密钥错误导致加密失败"
+	SDKFileIdErrMsg         = "fileid错误"
+	SDKDecryptErrMsg        = "解密失败"
+	SDKSecretMissErrMsg     = "找不到消息加密版本的私钥，需要重新传入私钥对"
+	SDKEncryptKeyErrMsg     = "解析encrypt_key出错"
+	SDKIPNotWhiteListErrMsg = "ip非法"
+	SDKDataExpiredErrMsg    = "数据过期"
+	SDKTokenExpiredErrMsg   = "证书过期"
+)
+
 type Error struct {
-	Code    int    `json:"errcode,omitempty"`
-	Message string `json:"errmsg,omitempty"`
-	Detail  string `json:"-"`
+	ErrCode int    `json:"errcode,omitempty"`
+	ErrMsg  string `json:"errmsg,omitempty"`
 }
 
-func (err Error) IsRetryable() bool {
-	return err.Code >= 10001 && err.Code <= 1003
+func (this Error) Error() string {
+	return fmt.Sprintf("%d:%s", this.ErrCode, this.ErrMsg)
 }
 
-func (err Error) Error() string {
-	if err.Detail != "" {
-		return fmt.Sprintf("%d: %s %s", err.Code, err.Message, err.Detail)
-	}
-	return fmt.Sprintf("%d: %s", err.Code, err.Message)
-}
-
-func (err Error) AsError() error {
-	if err.Code == 0 {
-		return nil
-	}
-	return err
-}
-
-func ErrorOfCode(code int, detail string) Error {
+func NewSDKErr(code int) Error {
 	msg := ""
 	switch code {
 	case 10000:
-		msg = "参数错误，请求参数错误"
+		msg = SDKParamsErrMsg
 	case 10001:
-		msg = "网络错误，网络请求错误"
+		msg = SDKNetworkErrMsg
 	case 10002:
-		msg = "数据解析失败"
+		msg = SDKParseErrMsg
 	case 10003:
-		msg = "系统失败"
+		msg = SDKSystemErrMsg
 	case 10004:
-		msg = "密钥错误导致加密失败"
+		msg = SDKSecretErrMsg
 	case 10005:
-		msg = "fileid错误"
+		msg = SDKFileIdErrMsg
 	case 10006:
-		msg = "解密失败"
+		msg = SDKDecryptErrMsg
 	case 10007:
-		msg = "找不到消息加密版本的私钥，需要重新传入私钥对"
+		msg = SDKSecretMissErrMsg
 	case 10008:
-		msg = "解析encrypt_key出错"
+		msg = SDKEncryptKeyErrMsg
 	case 10009:
-		msg = "ip非法"
+		msg = SDKIPNotWhiteListErrMsg
 	case 10010:
-		msg = "数据过期"
+		msg = SDKDataExpiredErrMsg
 	case 10011:
-		msg = "证书错误"
+		msg = SDKTokenExpiredErrMsg
 	}
-	return Error{Code: code, Message: msg, Detail: detail}
+	return Error{ErrCode: code, ErrMsg: msg}
 }
